@@ -1,11 +1,12 @@
 #!/bin/bash
 #SBATCH -A %%project_name%%
+#SBATCH --array [0-%%num_jobs%%]%%%num_parallel_jobs%%
 #SBATCH -J %%experiment_name%%
 #SBATCH -D %%experiment_cwd%%
 #SBATCH --mail-type=END
 # Please use the complete path details :
-#SBATCH -e %%err_file%%
-#SBATCH -o %%out_file%%
+#SBATCH -o %%experiment_cwd%%/out_%A_%a.log
+#SBATCH -e %%experiment_cwd%%/err_%A_%a.log
 #
 #SBATCH -n %%number_of_jobs%%         # Number of tasks
 #SBATCH -c %%number_of_cpu_per_job%%  # Number of cores per task
@@ -23,6 +24,4 @@ source activate your_env
 # cd into the working directory
 cd %%experiment_cwd%%
 
-srun hostname > hostfile.$SLURM_JOB_ID
-
-mpiexec -map-by node -hostfile $SLURM_JOB_ID.hostfile --mca mpi_warn_on_fork 0 --display-allocation --display-map python -m mpi4py %%python_script_name%% -c %%yaml_config%% -d -v
+mpiexec -map-by core -bind-to core python3.6 -c "%%python_script%%" config.yml -m -g 1 -l DEBUG -j $SLURM_ARRAY_TASK_ID
