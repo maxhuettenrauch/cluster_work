@@ -812,9 +812,10 @@ class ClusterWork(object):
             tline = tline.replace('%%experiment_name%%', cluster_options['experiment_name'])
             tline = tline.replace('%%time_limit%%', '{:d}:{:d}:00'.format(cluster_options['time_limit'] // 60,
                                                                           cluster_options['time_limit'] % 60))
+            tline = tline.replace('%%experiment_root%%', cluster_options['experiment_root'])
             tline = tline.replace('%%experiment_cwd%%', cluster_options['experiment_cwd'])
             tline = tline.replace('%%python_script%%', experiment_code)
-            tline = tline.replace('%%yaml_config%%', cw_options.config.name)
+            tline = tline.replace('%%path_to_yaml_config%%', os.path.join(cluster_options['experiment_cwd'], "config.yml"))
             tline = tline.replace('%%num_jobs%%', '{:d}'.format(cluster_options['num_jobs']))
             tline = tline.replace('%%num_parallel_jobs%%', '{:d}'.format(cluster_options['num_parallel_jobs']))
             tline = tline.replace('%%mem%%', '{:d}'.format(cluster_options['mem']))
