@@ -28,6 +28,7 @@ import fnmatch
 from typing import Generator, Tuple, List
 from shutil import copyfile
 import subprocess
+from attrdict import AttrDict
 
 import numpy as np
 import pandas as pd
@@ -212,10 +213,10 @@ class ClusterWork(object):
                          help='Ignores changes in the configuration file for skipping or overwriting experiments..')
     _parser.add_argument('--restart_full_repetitions', action='store_true')
     _parser.add_argument('-l', '--log_level', nargs='?', default='INFO',
-                         choices=['DEBUG', 'INFO', 'WARNING', 'WARN', 'ERROR'],
+                         choices=['DEBUG', 'INFO', 'WARNING', 'WARN', 'ERROR', 'CRITICAL'],
                          help='Sets the log-level for the output of the experiment logger.')
     _parser.add_argument('-L', '--cw_log_level', nargs='?', default='INFO',
-                         choices=['DEBUG', 'INFO', 'WARNING', 'WARN', 'ERROR'],
+                         choices=['DEBUG', 'INFO', 'WARNING', 'WARN', 'ERROR', 'CRITICAL'],
                          help='Sets the log-level for the output of ClusterWork.')
     _parser.add_argument('-r', '--repetition', type=int,
                          help='Start only given repetition, assumes that only one experiment will be started.')
@@ -297,7 +298,7 @@ class ClusterWork(object):
         """ reads the parameters of the experiment (= path) given.
         """
         with open(os.path.join(path, config_filename), 'r') as f:
-            config = yaml.load(f)
+            config = yaml.load(f, Loader=yaml.FullLoader)
             return config
 
     @staticmethod
@@ -309,7 +310,7 @@ class ClusterWork(object):
         for dir_path, dir_names, filenames in os.walk(path):
             if 'experiment.yml' in filenames:
                 with open(os.path.join(dir_path, 'experiment.yml')) as f:
-                    for d in yaml.load_all(f):
+                    for d in yaml.load_all(f, Loader=yaml.FullLoader):
                         if 'name' in d and d['name'] == name:
                             experiments.append(dir_path)
         return experiments
@@ -324,7 +325,7 @@ class ClusterWork(object):
         :return: returns the experiment configurations
         """
         try:
-            _config_documents = [*yaml.load_all(config_file)]
+            _config_documents = [*yaml.load_all(config_file, Loader=yaml.FullLoader)]
         except IOError:
             raise SystemExit('config file %s not found.' % config_file)
 
@@ -334,7 +335,9 @@ class ClusterWork(object):
                 default_config = _config_documents[1]
                 experiments_config = _config_documents[2:]
             else:
-                default_config = dict()
+                # TODO: check if AttrDict breaks things
+                # default_config = dict()
+                default_config = AttrDict()
                 experiments_config = _config_documents
         else:
             slurm_config = None
@@ -342,7 +345,8 @@ class ClusterWork(object):
                 default_config = _config_documents[0]
                 experiments_config = _config_documents[1:]
             else:
-                default_config = dict()
+                # default_config = dict()
+                default_config = AttrDict()
                 experiments_config = _config_documents
 
         # TODO use namedtuple or own ParameterStore??
@@ -357,7 +361,8 @@ class ClusterWork(object):
                 deep_update(_effective_config, _config_e)
 
                 # merge params with default params from subclass
-                _effective_params = dict()
+                # _effective_params = dict()
+                _effective_params = AttrDict()
                 deep_update(_effective_params, cls._default_params)
                 deep_update(_effective_params, _effective_config['params'])
                 _effective_config['params'] = _effective_params
@@ -539,6 +544,10 @@ class ClusterWork(object):
         if create_dirs:
             for _config in run_experiments:
                 cls.__create_experiment_directory(_config, delete_old or _config in clear_experiments)
+
+            copyfile(os.path.abspath(config_file.name), os.path.join(_config['_config_path'], "config.yml"))
+            print(os.path.abspath(config_file.name))
+            print(os.path.join(_config['_config_path'], "config.yml"))
 
         if return_all:
             return expanded_experiments
@@ -910,18 +919,27 @@ class ClusterWork(object):
                     # expand config_list_w_expanded_params for all repetitions and add self and rep number
                     repetitions_list = list(zip([experiment] * num_repetitions, range(num_repetitions)))
 
-                _logger.info("starting experiment {}".format(experiment['name']))
+                _logger.log(INFO_BORDER, "starting experiment {}".format(experiment['name']))
 
                 results = dict()
                 for repetition in repetitions_list:
                     time_start = time.perf_counter()
-                    _logger.log(INFO_BORDER, '====================================================')
-                    _logger.log(INFO_CONTNT, '>  Running Repetition {} '.format(repetition[1] + 1))
+                    # _logger.log(INFO_BORDER, '====================================================')
+                    # _logger.log(INFO_CONTNT, '>  Running Repetition {} '.format(repetition[1] + 1))
+                    # result = cls().__init_rep(*repetition).__run_rep(*repetition)
+                    # _elapsed_time = time.perf_counter() - time_start
+                    # _logger.log(INFO_BORDER, '////////////////////////////////////////////////////')
+                    # _logger.log(INFO_CONTNT, '>  Finished Repetition {}'.format(repetition[1] + 1))
+                    # _logger.log(INFO_CONTNT, '>  Elapsed time: {}'.format(format_time(_elapsed_time)))
+
+                    _logger.info('====================================================')
+                    _logger.info('>  Running Repetition {} '.format(repetition[1] + 1))
                     result = cls().__init_rep(*repetition).__run_rep(*repetition)
                     _elapsed_time = time.perf_counter() - time_start
-                    _logger.log(INFO_BORDER, '////////////////////////////////////////////////////')
-                    _logger.log(INFO_CONTNT, '>  Finished Repetition {}'.format(repetition[1] + 1))
-                    _logger.log(INFO_CONTNT, '>  Elapsed time: {}'.format(format_time(_elapsed_time)))
+                    _logger.info('////////////////////////////////////////////////////')
+                    _logger.info('>  Finished Repetition {}'.format(repetition[1] + 1))
+                    _logger.info('>  Elapsed time: {}'.format(format_time(_elapsed_time)))
+
                     results[repetition[1]] = result
                     gc.collect()
 
@@ -1004,6 +1022,7 @@ class ClusterWork(object):
         else:
             logging.root.handlers.clear()
             logging.root.handlers = [file_handler, _logging_filtered_std_handler, _logging_err_handler]
+            # FIXME: put a flag if we want to write log file (which can become large with many iterations)
             _logger.addHandler(file_handler)
 
         self.reset(config, rep)
@@ -1064,11 +1083,19 @@ class ClusterWork(object):
             expected_total_time = None
             time_start = time.perf_counter()
             try:
-                _logger.log(INFO_BORDER, '----------------------------------------------------')
-                _logger.log(INFO_CONTNT, '>  Starting Iteration {}/{} of Repetition {}/{}'.format(
+                # _logger.log(INFO_BORDER, '----------------------------------------------------')
+                # _logger.log(INFO_CONTNT, '>  Starting Iteration {}/{} of Repetition {}/{}'.format(
+                #     it + 1, self._iterations, rep + 1, self._repetitions))
+                # _logger.log(INFO_BORDER, '----------------------------------------------------')
+
+                _logger.info('----------------------------------------------------')
+                _logger.info('>  Starting Iteration {}/{} of Repetition {}/{}'.format(
                     it + 1, self._iterations, rep + 1, self._repetitions))
-                _logger.log(INFO_BORDER, '----------------------------------------------------')
+                _logger.info('----------------------------------------------------')
+
+                print("Before self.iterate")
                 it_result = self.iterate(config, rep, it)
+                print("After self.iterate")
                 iteration_time = time.perf_counter() - time_start
                 repetition_time += iteration_time
                 mean_iteration_time = repetition_time / (it + 1)
@@ -1089,6 +1116,9 @@ class ClusterWork(object):
                                                   columns=flat_it_result.keys(), dtype=float)
 
                 self.__results.loc[(rep, it)] = flat_it_result
+                # FIXME: need to do this twice because else first iteration won't record results correctly oO
+                if it == 0:
+                    self.__results.loc[(rep, it)] = flat_it_result
 
                 # save state before results, so that we know the saved state can be restored if we find the results.
                 self.save_state(config, rep, it)
@@ -1099,6 +1129,11 @@ class ClusterWork(object):
                 else:
                     self.__results.iloc[[it]].to_csv(log_filename, mode='a', header=False,
                                                      **self._pandas_to_csv_options)
+
+                if 'current_opt' in it_result:
+                    if it_result['current_opt'] < 1e-5:
+                        self.__results.loc[rep, 'current_opt'][it:] = 1e-5
+                        return self.__results
             except ValueError or ArithmeticError or np.linalg.linalg.LinAlgError:
                 _logger.error('Experiment {} - Repetition {} - Iteration {}'.format(config['name'], rep + 1, it + 1),
                               exc_info=True)
@@ -1110,12 +1145,20 @@ class ClusterWork(object):
             finally:
                 if iteration_time is None:
                     iteration_time = time.perf_counter() - time_start
-                _logger.log(INFO_BORDER, '----------------------------------------------------')
-                _logger.log(INFO_CONTNT, '>  Finished Iteration {}/{} of Repetition {}/{}'.format(
+                # _logger.log(INFO_BORDER, '----------------------------------------------------')
+                # _logger.log(INFO_CONTNT, '>  Finished Iteration {}/{} of Repetition {}/{}'.format(
+                #     it + 1, self._iterations, rep + 1, self._repetitions))
+                # _logger.log(INFO_CONTNT, '>  Iteration time: {} [{}]'.format(format_time(iteration_time),
+                #                                                              format_time(mean_iteration_time)))
+                # _logger.log(INFO_CONTNT, '>  Repetition time: {} [{}]'.format(format_time(repetition_time),
+                #                                                               format_time(expected_total_time)))
+
+                _logger.info('----------------------------------------------------')
+                _logger.info('>  Finished Iteration {}/{} of Repetition {}/{}'.format(
                     it + 1, self._iterations, rep + 1, self._repetitions))
-                _logger.log(INFO_CONTNT, '>  Iteration time: {} [{}]'.format(format_time(iteration_time),
+                _logger.info('>  Iteration time: {} [{}]'.format(format_time(iteration_time),
                                                                              format_time(mean_iteration_time)))
-                _logger.log(INFO_CONTNT, '>  Repetition time: {} [{}]'.format(format_time(repetition_time),
+                _logger.info('>  Repetition time: {} [{}]'.format(format_time(repetition_time),
                                                                               format_time(expected_total_time)))
 
         self.finalize()
@@ -1250,7 +1293,7 @@ class ClusterWork(object):
     def __experiment_exists_identically(config):
         if ClusterWork.__experiment_exists(config):
             with open(os.path.join(config['path'], 'experiment.yml'), 'r') as f:
-                dumped_config = yaml.load(f)
+                dumped_config = yaml.load(f, Loader=yaml.FullLoader)
                 return dumped_config == config
 
         return False
@@ -1271,6 +1314,7 @@ class ClusterWork(object):
         rep_results_filename = os.path.join(config['log_path'], 'rep_{}.csv'.format(rep))
 
         if os.path.exists(rep_results_filename):
+            print("Rep path exists: {}".format(rep_results_filename))
             rep_results_df = pd.read_csv(rep_results_filename, sep='\t')
             rep_results_df.set_index(keys=['r', 'i'], inplace=True)
 
