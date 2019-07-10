@@ -546,8 +546,6 @@ class ClusterWork(object):
                 cls.__create_experiment_directory(_config, delete_old or _config in clear_experiments)
 
             copyfile(os.path.abspath(config_file.name), os.path.join(_config['_config_path'], "config.yml"))
-            print(os.path.abspath(config_file.name))
-            print(os.path.join(_config['_config_path'], "config.yml"))
 
         if return_all:
             return expanded_experiments
@@ -1093,9 +1091,7 @@ class ClusterWork(object):
                     it + 1, self._iterations, rep + 1, self._repetitions))
                 _logger.info('----------------------------------------------------')
 
-                print("Before self.iterate")
                 it_result = self.iterate(config, rep, it)
-                print("After self.iterate")
                 iteration_time = time.perf_counter() - time_start
                 repetition_time += iteration_time
                 mean_iteration_time = repetition_time / (it + 1)
@@ -1314,7 +1310,6 @@ class ClusterWork(object):
         rep_results_filename = os.path.join(config['log_path'], 'rep_{}.csv'.format(rep))
 
         if os.path.exists(rep_results_filename):
-            print("Rep path exists: {}".format(rep_results_filename))
             rep_results_df = pd.read_csv(rep_results_filename, sep='\t')
             rep_results_df.set_index(keys=['r', 'i'], inplace=True)
 
