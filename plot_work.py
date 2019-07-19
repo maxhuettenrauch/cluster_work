@@ -247,6 +247,10 @@ def __plot_iteration_completer(_ipython, _event):
 @argument('--prefix', type=str, help='add a prefix to the filename', default='')
 @argument('--format', type=str, help='format to store the figure in', default=None)
 @argument('-i', '--individual', action='store_true', help='plot each experiment in a single axes object')
+@argument('--log', action='store_true', help='show results on log scale')
+@argument('--plot_each', action='store_true', help='show individual lines in same plot with mean')
+@argument('--samples', action='store_true', help='plot samples')
+@argument('--use_median', action='store_true', help='use median instead of mean')
 def plot_results(line: str):
     args = parse_argstring(plot_results, line)
 
@@ -267,14 +271,19 @@ def plot_results(line: str):
             config, result = config_result
             # ax.set_xlim(0, config['iterations'])
             ax.set_title('Results')
-            ax.set_xlabel('iterations')
+            if args.samples:
+                ax.set_xlabel('samples')
+            else:
+                ax.set_xlabel('iterations')
             ax.set_ylabel(args.column)
-            __results_plot_functions[args.plotter_name](config['name'], result, ax)
+            __results_plot_functions[args.plotter_name](config, result, ax, **vars(args))
 
         if args.save_figures:
             if args.format is None:
                 args.format = plt.rcParams['savefig.format']
             filename = 'plots/{}{}_figure.{}'.format(args.prefix, selector, args.format)
+            if not os.path.exists('plots'):
+                os.makedirs('plots')
             if args.format == 'tikz':
                 try:
                     from matplotlib2tikz import save as tikz_save
@@ -403,7 +412,7 @@ def show_progress(line: str):
         total_progress, experiments_progress = ClusterWork.get_progress(f, __experiment_selectors)
 
     box_layout = Layout(display='flex', flex_flow='column', align_items='stretch', widht='100%')
-    items = [__create_exp_progress_box(*progress, show_full_progress) for progress in experiments_progress]
+    items = [__create_exp_progress_box(progress, show_full_progress) for progress in experiments_progress]
 
     total_progress_bar = FloatProgress(value=total_progress, min=.0, max=1., description='Total', bar_style='success')
 
@@ -448,37 +457,120 @@ def line_style_cycle(axes: Axes):
         return _line_style_cycles[axes]
 
 
-def _plot_one_column(axes, column, name, plot_each_rep=False, ls_def=None):
-    mean = column.groupby(level=1).mean()
-    std = column.groupby(level=1).std()
+def _plot_one_column(axes, column, name, plot_each_rep=False, ls_def=None, log=False, n_samples=1, offset_samples=0,
+                     use_median=False):
+    if use_median:
+        mean = column.groupby(level=1).median()
+        std_lower = column.groupby(level=1).quantile(0.1)
+        std_upper = column.groupby(level=1).quantile(0.9)
+    else:
+        mean = column.groupby(level=1).mean()
+        std_lower = std_upper = column.groupby(level=1).std()
     if ls_def is None:
         ls_name = next(line_style_cycle(axes))
         ls_def = _line_styles[ls_name]
 
     if plot_each_rep:
-        axes.plot(mean.index, column.unstack(level=0), c='grey', ls=ls_def, alpha=.5)
+        if log:
+            axes.semilogy(mean.index * n_samples + offset_samples, column.unstack(level=0), c='grey', ls=ls_def, alpha=.5)
+        else:
+            axes.plot(mean.index * n_samples + offset_samples, column.unstack(level=0), c='grey', ls=ls_def, alpha=.5)
 
-    axes.fill_between(mean.index, mean - 2 * std, mean + 2 * std, alpha=.35)
-    axes.plot(mean.index, mean, label=name, ls=ls_def)
+    if log:
+        axes.semilogy(mean.index * n_samples + offset_samples, mean, label=name, ls=ls_def)
+    else:
+        axes.plot(mean.index, mean, label=name, ls=ls_def)
+    # axes.fill_between(mean.index * n_samples + offset_samples, mean - 2 * std_lower, mean + 2 * std_upper, alpha=.35)
     axes.legend()
 
 
-@register_results_plot_function('mean_2std')
-def plot_mean_2std(name: str, results_df: Union[Series, DataFrame], axes: Axes, plot_each_rep=False):
+@register_results_plot_function('all_trials')
+def plot_all_trials(name: str, results_df: Union[Series, DataFrame], axes: Axes, plot_each_rep=False, log=False):
 
     if isinstance(results_df, DataFrame):
         for col in results_df:
-            _plot_one_column(axes, results_df[col], name + ', ' + col, plot_each_rep)
+            _plot_one_column(axes, results_df[col], name + ', ' + col, plot_each_rep, log=log)
     else:
-        _plot_one_column(axes, results_df, name, plot_each_rep)
+        _plot_one_column(axes, results_df, name, plot_each_rep, log=log)
 
 
-register_results_plot_function('mean_2std_reps')(lambda n, df, a: plot_mean_2std(n, df, a, True))
+register_results_plot_function('all_trials')(lambda n, df, a, p, l: plot_all_trials(n, df, a, True, True))
+
+
+@register_results_plot_function('mean_2std')
+def plot_mean_2std(config, results_df: Union[Series, DataFrame], axes: Axes, plot_each=False, log=False,
+                   samples=False, **unused_args):
+    name = config['name']
+
+    if samples:
+        n_samples = config['params'].optim_params.n_samples
+        if 'more' in config['params'].optim_params.name:
+            # more needs some samples to warm start the quadratic model
+            offset_samples = config['params'].optim_params.max_samples
+        else:
+            offset_samples = 0
+
+    else:
+        n_samples = 1
+        offset_samples = 0
+
+    if isinstance(results_df, DataFrame):
+        for col in results_df:
+            _plot_one_column(axes, results_df[col], name + ', ' + col, plot_each,
+                             log=log, n_samples=n_samples, offset_samples=offset_samples)
+    else:
+        _plot_one_column(axes, results_df, name, plot_each,
+                         log=log, n_samples=n_samples, offset_samples=offset_samples)
+
+
+register_results_plot_function('mean_2std_reps')(lambda n, df, a, p, l, s: plot_mean_2std(n, df, a, True, True, True))
+
+
+@register_results_plot_function('median_2std')
+def plot_median_2std(config, results_df: Union[Series, DataFrame], axes: Axes, plot_each=False, log=False,
+                   samples=False, **unused_args):
+    name = config['name']
+    if samples:
+        n_samples = config['params'].optim_params.n_samples
+        if 'more' in config['params'].optim_params.name:
+            # more needs some samples to warm start the quadratic model
+            offset_samples = config['params'].optim_params.max_samples
+        else:
+            offset_samples = 0
+
+    else:
+        n_samples = 1
+        offset_samples = 0
+
+    if isinstance(results_df, DataFrame):
+        for col in results_df:
+            _plot_one_column(axes, results_df[col], name + ', ' + col, plot_each,
+                             log=log, n_samples=n_samples, offset_samples=offset_samples, use_median=True)
+    else:
+        _plot_one_column(axes, results_df, name, plot_each,
+                         log=log, n_samples=n_samples, offset_samples=offset_samples, use_median=True)
+
+
+register_results_plot_function('median_2std_reps')(lambda n, df, a, p, l, s: plot_mean_2std(n, df, a, True, True, True))
 
 
 @register_results_plot_function('mean_2std_best')
-def plot_mean_2std_best(name: str, results_df: Union[Series, DataFrame], axes: Axes, plot_outliers=False):
-    n_best = 7
+def plot_mean_2std_best(config, results_df: Union[Series, DataFrame], axes: Axes, plot_outliers=False,
+                        plot_each=False, log=False, samples=False, **unused_args
+                        ):
+    name = config['name']
+    if samples:
+        n_samples = config['params'].optim_params.n_samples
+        if 'more' in config['params'].optim_params.name:
+            # more needs some samples to warm start the quadratic model
+            offset_samples = config['params'].optim_params.max_samples
+        else:
+            offset_samples = 0
+    else:
+        n_samples = 1
+        offset_samples = 0
+    # args = parse_argstring(plot_mean_2std_best, name)
+    n_best = 7  # args.n_best
 
     if isinstance(results_df, DataFrame):
         for col in results_df:
@@ -500,7 +592,8 @@ def plot_mean_2std_best(name: str, results_df: Union[Series, DataFrame], axes: A
                 unstacked_outliers = outlier_repetitions.unstack(level=0)
                 axes.plot(unstacked_outliers.index, unstacked_outliers, c='grey', ls=ls_def, alpha=.5)
 
-            _plot_one_column(axes, selected_repetitions, name + ', ' + col, ls_def=ls_def)
+            _plot_one_column(axes, selected_repetitions, name + ', ' + col, ls_def=ls_def,
+                             plot_each_rep=plot_each, log=log, n_samples=n_samples, offset_samples=offset_samples)
     else:
         # search maximum values in each repetition
         max_val = results_df.groupby(level=0).max()
@@ -523,7 +616,8 @@ def plot_mean_2std_best(name: str, results_df: Union[Series, DataFrame], axes: A
         _plot_one_column(axes, selected_repetitions, name, ls_def=ls_def)
 
 
-register_results_plot_function('mean_2std_best_out')(lambda n, df, a: plot_mean_2std_best(n, df, a, True))
+register_results_plot_function('mean_2std_best_out')(lambda n, df, a, po, p, l, s: plot_mean_2std_best(n, df, a, True,
+                                                                                                       True, True, True))
 
 
 @register_results_plot_function('mean_grid_results')
