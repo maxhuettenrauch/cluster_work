@@ -1,7 +1,7 @@
 # ClusterWork
 
 A framework to easily deploy experiments on an computing cluster with mpi. 
-**ClusterWork** is based on the [Python Experiment Suite](https://github.com/rueckstiess/expsuite) by Thomas Rückstiess and uses the [mpi4py](https://pypi.org/project/mpi4py/) package together with the [cloudpickle](https://github.com/cloudpipe/cloudpickle) package to distribute the work.
+**ClusterWork** is based on the [Python Experiment Suite](https://github.com/rueckstiess/expsuite) by Thomas Rückstiess and uses slurm together with the [cloudpickle](https://github.com/cloudpipe/cloudpickle) package to distribute the work.
 
 The **PlotWork** extension for [IPython](https://ipython.org/) allows for easy visualization of of experiment results during run time or after the experiment has finished using [Jupyter](https://jupyter.org/).
 
@@ -25,10 +25,8 @@ The **PlotWork** extension for [IPython](https://ipython.org/) allows for easy v
     pip install -e .
     ```
     The `-e` option of pip makes the project editable, i.e., pip will only reference to the git directory and hence changes in the git will be directly available in your environment. If you install without the `-e` option, pip will copy the source to your python packages.
-2. Install required packages for running experiments with MPI
-    The packages required for executing experiments via MPI need to be installed manually
      ```bash
-     pip install mpi4py cloudpickle
+     pip install cloudpickle
      ```
 
 ## Get your code on the computing cluster
