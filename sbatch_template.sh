@@ -16,10 +16,10 @@
 # -------------------------------
 
 # Load the required modules
-module load gcc openmpi/gcc
+# module load gcc openmpi/gcc
 
 # Activate the virtualenv / conda environment
-source activate your_env
+# source activate your_env
 
 # cd into the working directory
 cd %%experiment_root%%
